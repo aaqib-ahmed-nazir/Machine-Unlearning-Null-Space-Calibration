@@ -1,54 +1,68 @@
-# UNSC Unlearning POC — Fashion-MNIST (FastAPI + PyTorch MPS)
+# Machine-Unlearning-Null-Space-Calibration 
 
-FastAPI-based proof-of-concept implementing **Machine Unlearning via Null Space Calibration (UNSC)** on **Fashion-MNIST**. Designed to run well on Apple Silicon using **PyTorch MPS**.
+FastAPI-based proof-of-concept implementing **Machine Unlearning via Null Space Calibration (UNSC)** on **Fashion-MNIST**, designed for Apple Silicon with **PyTorch MPS**.
+
+- **Paper(used to built the POC)**: [Machine Unlearning via Null Space Calibration (IJCAI 2024)](https://www.ijcai.org/proceedings/2024/0040.pdf) 
+- **Report notebook**: `[UNSC_FashionMNIST_Report.ipynb](UNSC_FashionMNIST_Report.ipynb)`
 
 ## Objective
 
-Demonstrate **class-level unlearning**: after training an image classifier, “forget” one selected class while preserving performance on the remaining classes.
+Demonstrate **class-level unlearning**: after training an image classifier, forget one selected class while preserving behavior on the retained classes.
 
-This repo provides:
+The repository provides:
 
-- **Training** an original model on full data
-- **UNSC unlearning** (paper-faithful Algorithms 1 & 2)
-- **Baselines**: full retrain (gold standard) and random-label fine-tuning
-- **Persistence**: all models + results + UNSC artifacts saved to disk for later plotting/analysis in a notebook
+- Training of an original model on full Fashion-MNIST
+- UNSC class-forgetting using Algorithm 1 + Algorithm 2
+- Baselines: full retrain and random-label fine-tuning
+- Disk persistence for models, metrics, and UNSC artifacts
 
-## UNSC in this repo (concise)
+## UNSC in this repo
 
-- **Algorithm 1 (Subspace discovery + projector build)**:
-  - For each class and each projection-enabled layer, collect **layer input features** (conv layers use patch-columns via `unfold`).
-  - Compute SVD and keep a truncated orthonormal basis using an energy threshold \( \epsilon \).
-  - Merge retained-class bases and build per-layer null-space projectors: \( P_\ell = I - Q_\ell Q_\ell^\top \).
-  - **Saved to** `outputs/unsc_subspaces_*.pt` and `outputs/projection_*.pt`.
+### Algorithm 1 - Subspaces + projectors (cached)
 
-- **Algorithm 2 (Projected unlearning with pseudo-labels)**:
-  - For forgotten samples, generate pseudo-labels from the frozen original model excluding the forget class:
-    \( \tilde{y} = \arg\max_{c \neq f} \theta_o(x)_c \)
-  - Train a student model on forgotten samples while projecting gradients at each layer using \( P_\ell \) to protect retained behavior.
-  - **Saved model** to `saved_models/unlearned_unsc_c<f>.pt` and run logs to `outputs/`.
+- Collect layer input features per class (conv layers use patch-columns via `unfold`).
+- Compute SVD and keep a truncated orthonormal basis using an energy threshold `ε`.
+- Merge retained-class bases and build each per-layer null-space projector:
+
+`P_l = I - Q_l Q_l^T`
+
+- Saved artifacts:
+  - `outputs/unsc_subspaces_*.pt` (+ `.meta.json`)
+  - `outputs/projection_*.pt`
+
+### Algorithm 2 - Projected unlearning with pseudo-labels
+
+- For each forgotten sample, generate a pseudo-label from the frozen original model excluding the forget class `f`:
+
+`y_hat = argmax_{c != f} theta_o(x)_c`
+
+- Train a student model on forgotten data while projecting each layer gradient by `P_l`.
+- Saved artifacts:
+  - `saved_models/unlearned_unsc_c<f>.pt`
+  - `outputs/results.json`
+  - `outputs/run_<run_id>.json`
 
 ## Repository structure
 
 ```text
 .
-├── app/                       # Core modules
-│   ├── main.py                # FastAPI app + endpoints (all async def)
-│   ├── schemas.py             # Pydantic request/response models
-│   ├── state.py               # In-process state (models/loaders/forget_class)
-│   ├── data_loader.py         # Fashion-MNIST loaders + retained/forgotten splits
-│   ├── model.py               # Small CNN + hooks for UNSC layer inputs
-│   ├── train.py               # Supervised training utilities
-│   ├── evaluate.py            # overall/retained/forgotten accuracy metrics
-│   ├── unlearn.py             # UNSC Algorithm 1 + Algorithm 2
-│   ├── baselines.py           # Full retrain + random-label baselines
-│   └── results.py             # Append-only JSON persistence (`outputs/results.json`)
-├── outputs/                   # Persisted run results + UNSC caches (generated)
-├── saved_models/              # Persisted checkpoints (generated)
-├── data/                      # Fashion-MNIST download cache (gitignored)
-├── UNSC_FashionMNIST_Report.ipynb  # Notebook: explanations + plots + inference demo
-├── app.py                     # Uvicorn launcher for FastAPI
-├── requirements.txt
-└── PRD.md
+├── app/
+│   ├── baselines.py
+│   ├── data_loader.py
+│   ├── evaluate.py
+│   ├── main.py
+│   ├── model.py
+│   ├── results.py
+│   ├── schemas.py
+│   ├── state.py
+│   ├── train.py
+│   └── unlearn.py
+├── UNSC_FashionMNIST_Report.ipynb  # Analysis + plotting + inference demo
+├── app.py                         # Uvicorn entry point
+├── outputs/                       # Generated artifacts (created at run time)
+├── saved_models/                  # Generated checkpoints
+├── data/                          # Fashion-MNIST download cache (gitignored)
+└── requirements.txt
 ```
 
 ## Setup
@@ -65,43 +79,30 @@ pip install -r requirements.txt
 python3 app.py
 ```
 
-Then open Swagger UI at `http://127.0.0.1:8000/docs`.
+Open Swagger UI at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
 
-## Suggested API flow (demo)
+## Suggested API flow
 
-1. `POST /model/train` — train or warm-load the original model \( \theta_o \)
-2. `POST /unlearn/select-class` — choose forget class id `0–9`
-3. `POST /unlearn/run` — run UNSC (Algorithms 1 & 2) and persist artifacts
-4. `POST /baseline/retrain` — full retrain baseline on retained data only
-5. `POST /baseline/random-label` — random-label fine-tune baseline
-6. `GET /results/compare` — show latest metrics per `(method, forget_class)`
-7. `GET /model/evaluate?scope=original|current` — evaluate the original vs current model
+1. `POST /model/train` — train or warm-load original model `θ_o`
+2. `POST /unlearn/select-class` — choose forget class (`0..9`)
+3. `POST /unlearn/run` — run UNSC unlearning
+4. `POST /baseline/retrain` — full retrain baseline
+5. `POST /baseline/random-label` — random-label baseline
+6. `GET /results/compare` — latest metrics table
+7. `GET /model/evaluate?scope=original|current` — evaluate saved models
 
-## Outputs and persistence
+## Persistence outputs
 
-- **Aggregate runs**: `outputs/results.json`
-- **Per-run detail** (curves/histories): `outputs/run_<run_id>.json`
-- **UNSC Algorithm 1 caches**: `outputs/unsc_subspaces_*.pt` + `.meta.json`
-- **UNSC projectors**: `outputs/projection_*.pt`
-- **Checkpoints**:
-  - `saved_models/original_model.pt`
-  - `saved_models/unlearned_unsc_c<f>.pt`
-  - `saved_models/retrained_c<f>.pt`
-  - `saved_models/random_label_c<f>.pt`
-
-## Notebook (plots + inference)
-
-Open and run `UNSC_FashionMNIST_Report.ipynb` to:
-
-- Read the math + explanation of Algorithms 1 & 2
-- Generate bar plots and learning/unlearning curves from saved results
-- Run a small inference demo using any saved checkpoint
-
-## Notes
-
-- FastAPI endpoints are `async def`, but the PyTorch work runs synchronously in-process (POC simplicity).
-- SVD/projector computations run on CPU for stability; model training/inference can use MPS when available.
+- `outputs/results.json` (aggregate runs)
+- `outputs/run_<run_id>.json` (per-run curves and metadata)
+- `outputs/unsc_subspaces_*.pt` + `.meta.json` (Algorithm 1 caches)
+- `outputs/projection_*.pt` (per-layer projectors)
+- `saved_models/original_model.pt`
+- `saved_models/unlearned_unsc_c<f>.pt`
+- `saved_models/retrained_c<f>.pt`
+- `saved_models/random_label_c<f>.pt`
 
 ## References
 
-- **Paper (IJCAI 2024)**: `https://www.ijcai.org/proceedings/2024/0040.pdf`
+- [Machine Unlearning via Null Space Calibration (IJCAI 2024)](https://www.ijcai.org/proceedings/2024/0040.pdf)
+
