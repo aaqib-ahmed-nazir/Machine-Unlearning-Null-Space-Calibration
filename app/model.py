@@ -6,21 +6,33 @@ from typing import Callable, OrderedDict
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
-def _flatten_nchw_to_columns(x: torch.Tensor) -> torch.Tensor:
-    """Map ``[N,C,H,W]`` to ``[C*H*W, N]`` (columns = samples).
+def _conv_input_patches_to_columns(x: torch.Tensor, conv: nn.Conv2d) -> torch.Tensor:
+    """Convert a Conv2d input tensor into patch-columns (paper’s conv→matmul note).
 
-    Matches UNSC Alg. 1 stacking of flattened layer inputs into matrix columns.
+    For conv layers, the gradient w.r.t. weights lives in the span of *input patches*,
+    not the full flattened image. This matches the paper’s note about reformulating
+    convolution as matrix multiplication.
 
     Args:
-        x: Activations arriving at Conv2d (or pooled feature maps).
+        x: Conv input activation ``[N,C,H,W]``.
+        conv: The Conv2d module (kernel/pad/stride/dilation).
 
     Returns:
-        2-D tensor suitable for singular value decomposition along columns.
+        Column matrix ``[C*kh*kw, N*L]`` where ``L`` is number of sliding windows.
     """
-    n = x.shape[0]
-    return x.detach().reshape(n, -1).transpose(0, 1)
+    x_cpu = x.detach().to("cpu")
+    patches = F.unfold(
+        x_cpu,
+        kernel_size=conv.kernel_size,
+        dilation=conv.dilation,
+        padding=conv.padding,
+        stride=conv.stride,
+    )  # [N, C*kh*kw, L]
+    n, d, l = patches.shape
+    return patches.reshape(n * l, d).transpose(0, 1).contiguous()
 
 
 def _flatten_linear_input(x: torch.Tensor) -> torch.Tensor:
@@ -73,7 +85,7 @@ class FashionCNN(nn.Module):
         def hook(_mod: nn.Module, inputs: tuple[torch.Tensor, ...]) -> None:
             x_in = inputs[0]
             if isinstance(module, nn.Conv2d):
-                flat_cpu = _flatten_nchw_to_columns(x_in).to("cpu")
+                flat_cpu = _conv_input_patches_to_columns(x_in, module)
             elif isinstance(module, nn.Linear):
                 flat_cpu = _flatten_linear_input(x_in).to("cpu")
             else:

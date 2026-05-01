@@ -257,11 +257,26 @@ def run_unsc(
     copy_weights(theta_o, theta_u)
 
     digest = state_dict_digest(theta_o)
-    cache_disk = outputs_folder / f"unsc_subspaces_{digest}.pt"
+
+    # Cache key must include hook feature dimensions. For conv layers, UNSC uses
+    # input *patch* vectors of size C*kh*kw (not the full flattened image).
+    hook_dims: list[str] = []
+    for nm, mod in theta_o.projection_modules.items():
+        if isinstance(mod, nn.Conv2d):
+            d = int(mod.in_channels * mod.kernel_size[0] * mod.kernel_size[1])
+        elif isinstance(mod, nn.Linear):
+            d = int(mod.in_features)
+        else:
+            d = -1
+        hook_dims.append(f"{nm}{d}")
+    hook_sig = "_".join(hook_dims)
+
+    cache_disk = outputs_folder / f"unsc_subspaces_{digest}_{hook_sig}.pt"
     cache_data = load_cached_subspaces_if_any(cache_disk)
 
     meta_save = {
         "digest": digest,
+        "hook_sig": hook_sig,
         "samples_per_cls": samples_algo1_cls,
         "epsilon_trunc_class": epsilon_trunc_class,
         "epsilon_union_layer": epsilon_union_layer,
@@ -286,8 +301,8 @@ def run_unsc(
         epsilon_merge=epsilon_union_layer,
     )
     torch.save(
-        {"projectors": projector_map, "digest": digest, "forget_class": forget_class},
-        outputs_folder / f"projection_{digest}_c{forget_class}.pt",
+        {"projectors": projector_map, "digest": digest, "hook_sig": hook_sig, "forget_class": forget_class},
+        outputs_folder / f"projection_{digest}_{hook_sig}_c{forget_class}.pt",
     )
 
     criterion = nn.CrossEntropyLoss()
