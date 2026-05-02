@@ -136,7 +136,7 @@ async def dataset_info() -> DatasetInfoResponse:
 
 @app.post("/model/train", response_model=TrainResponse)
 async def model_train(payload: TrainRequest) -> TrainResponse:
-    """Train or warm-load θ_o; mirrors PRD baseline before any forgetting."""
+    """Train or warm-load θ_o; baseline before any forgetting."""
     timer = Timer()
     set_global_seed(payload.seed)
     state.seed = payload.seed

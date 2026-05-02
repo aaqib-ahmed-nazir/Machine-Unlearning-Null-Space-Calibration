@@ -3,7 +3,7 @@
 FastAPI-based proof-of-concept implementing **Machine Unlearning via Null Space Calibration (UNSC)** on **Fashion-MNIST**, designed for Apple Silicon with **PyTorch MPS**.
 
 - **Paper(used to built the POC)**: [Machine Unlearning via Null Space Calibration (IJCAI 2024)](https://www.ijcai.org/proceedings/2024/0040.pdf) 
-- **Report notebook**: `[UNSC_FashionMNIST_Report.ipynb](UNSC_FashionMNIST_Report.ipynb)`
+- **Report notebook**: [`UNSC_FashionMNIST_Report.ipynb`](UNSC_FashionMNIST_Report.ipynb)
 
 ## Objective
 
@@ -57,6 +57,7 @@ The repository provides:
 │   ├── state.py
 │   ├── train.py
 │   └── unlearn.py
+├── docs/report/                   # Figures for README / GitHub (e.g. accuracy comparison)
 ├── UNSC_FashionMNIST_Report.ipynb  # Analysis + plotting + inference demo
 ├── app.py                         # Uvicorn entry point
 ├── outputs/                       # Generated artifacts (created at run time)
@@ -90,6 +91,19 @@ Open Swagger UI at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
 5. `POST /baseline/random-label` — random-label baseline
 6. `GET /results/compare` — latest metrics table
 7. `GET /model/evaluate?scope=original|current` — evaluate saved models
+
+## Results
+
+After running the flow above (example: forget class **0**), overall / retained / forgotten test accuracy and wall-clock time compare as follows. **UNSC** keeps retained accuracy close to **full retrain** while collapsing performance on the forgotten class, with much less runtime than retraining; **random label** is fast but destroys retained accuracy.
+
+<img src="./docs/report/accuracy_comparison.png" alt="Bar charts: accuracy (retained, forgotten, overall) and runtime in seconds for Original, UNSC, Full retrain, and Random label" width="100%" />
+
+| Method | Overall acc. | Retained acc. | Forgotten acc. | Runtime (s) |
+|--------|--------------|---------------|----------------|-------------|
+| Original | 0.905 | 0.905 | 0.905 | ~49 |
+| UNSC | 0.768 | 0.854 | ~0.001 | ~6 |
+| Full retrain | 0.786 | 0.874 | 0.0 | ~69 |
+| Random label | 0.286 | 0.318 | 0.0 | ~3.8 |
 
 ## Persistence outputs
 
